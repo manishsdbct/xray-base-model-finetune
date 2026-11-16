@@ -76,7 +76,7 @@ enough positives for Lung Opacity only):
 | **v1** | simulated photo | **0.782** | 64% | **34%** |
 | **v1** | 20 real photos | **0.953** | 75% | **25%** |
 
-- AUC goes up for 13 of 14 findings on photos, including those held to the base model
+- On simulated photos, AUC goes up for all 14 findings, including those held to the base model
   (Consolidation 0.72 → 0.81, Edema 0.86 → 0.95).
 - The new operating points cut false hints by about a third but catch fewer findings. To move that
   balance, change how `operating_points()` in `ft/model.py` picks the threshold (for example, the
