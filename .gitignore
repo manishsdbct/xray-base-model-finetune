@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+# Generated from the dataset (patient images stay out of git)
+data/
+runs/
+*.log
+.DS_Store
