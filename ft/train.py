@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from .data import XrayDataset
 from .labels import PATHOLOGIES
-from .model import aucs, base_model, device, logits, operating_points
+from .model import aucs, base_model, calibrate, device, logits
 
 
 class Pairs(Dataset):
@@ -97,7 +97,6 @@ def main() -> None:
     }
 
     model = base_model().to(dev)
-    base_threshs = model.op_threshs.cpu().numpy().copy()
     model.op_threshs = None  # train on raw scores
     teacher = copy.deepcopy(model).eval()
     for p in teacher.parameters():
@@ -151,9 +150,7 @@ def main() -> None:
     # New operating points from the best weights, on clean and photo validation images together, so
     # a score of 0.5 keeps meaning "at the operating point" in the app.
     model.load_state_dict(torch.load(a.out / "last_best_weights.pt", map_location=dev)["state_dict"])
-    zs, ys = zip(*(logits(model, loader, dev) for loader in val.values()))
-    probs = 1 / (1 + np.exp(-np.concatenate(zs)))
-    th = operating_points(probs, np.concatenate(ys), base_threshs)
+    th = calibrate(model, val.values(), dev)
     model.op_threshs = torch.tensor(th, dtype=torch.float32, device=dev)  # saved in state_dict
     torch.save(
         {"state_dict": model.state_dict(), "op_threshs": th.tolist(), "pathologies": PATHOLOGIES,

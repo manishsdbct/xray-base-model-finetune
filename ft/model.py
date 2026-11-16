@@ -62,14 +62,26 @@ def aucs(scores: np.ndarray, y: np.ndarray, min_pos: int = 5) -> dict[str, float
     return out
 
 
-def operating_points(probs: np.ndarray, y: np.ndarray, fallback: np.ndarray, min_pos: int = 10) -> np.ndarray:
-    """Per label, the probability that best separates present from absent on the validation set
-    (Youden's J). Labels with too few positives keep the base model's point."""
-    th = fallback.copy()
+def operating_points(probs: np.ndarray, y: np.ndarray, min_pos: int = 10, max_fpr: float = 0.02) -> np.ndarray:
+    """Per label, the probability at which a score counts as a hint (0.5 after op_norm).
+
+    With at least min_pos positives on the validation set: the point that best separates present
+    from absent (Youden's J). With fewer, sensitivity cannot be measured, so the point is set so
+    that only max_fpr of scans without the finding reach it; otherwise such labels hover at the
+    cut-off on every photo and add noise."""
+    th = np.zeros(len(PATHOLOGIES))
     for j in range(len(PATHOLOGIES)):
         ok = ~np.isnan(y[:, j])
         t, p = y[ok, j], probs[ok, j]
         if t.sum() >= min_pos and (t == 0).sum() >= min_pos:
             fpr, tpr, cut = roc_curve(t, p)
-            th[j] = float(np.clip(cut[np.argmax(tpr - fpr)], 1e-4, 1 - 1e-4))
-    return th
+            th[j] = cut[np.argmax(tpr - fpr)]
+        else:
+            th[j] = np.quantile(p[t == 0], 1 - max_fpr)
+    return np.clip(th, 1e-4, 1 - 1e-4)
+
+
+def calibrate(model, loaders, dev) -> np.ndarray:
+    """Operating points from the validation loaders (clean and photo together)."""
+    zs, ys = zip(*(logits(model, loader, dev) for loader in loaders))
+    return operating_points(1 / (1 + np.exp(-np.concatenate(zs))), np.concatenate(ys))

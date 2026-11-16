@@ -29,7 +29,10 @@ ScanArth users upload. The app is in the `x-ray-saathi` repo; there the model ru
   to answer the same for a photo as for the clean scan.
 - **Operating points:** the app treats a score ≥ 0.5 as a hint. TorchXRayVision scales scores so
   0.5 is each finding's operating point; training picks new operating points on the validation
-  set and saves them inside the weights (`op_threshs`).
+  set (clean and simulated photos together) and saves them inside the weights (`op_threshs`).
+  Findings with at least 10 positives in validation get the point that best separates present from
+  absent. Rarer ones get the point that only 2% of scans without the finding reach: without
+  that, Pneumothorax and Pneumonia scored just over 0.5 on almost every photo.
 
 ## Setup
 
@@ -47,6 +50,7 @@ Runs on Apple silicon (MPS), CUDA or CPU. The first run downloads the base weigh
 .venv/bin/python -m ft.prepare                  # data/labels.csv + label counts per split
 .venv/bin/python -m ft.train --out runs/v1      # about 15 minutes on an M5
 .venv/bin/python -m ft.evaluate runs/v1/best.pt --cases ~/Documents/xray-saathi/data/eval
+.venv/bin/python -m ft.calibrate runs/v1/best.pt  # only after changing operating_points()
 ```
 
 `ft.train --help` lists the settings (epochs, learning rates, `--p-photo`, `--min-positives`,
@@ -64,25 +68,34 @@ scoring ≥ 0.5) and **false hints** (absent findings scoring ≥ 0.5).
 
 ## Results
 
-`runs/v1`, the default settings, on 2026-11-16 (517 test images; the 20 real phone photos have
-enough positives for Lung Opacity only):
+`runs/v1`, the default settings, trained 2026-11-16 (517 test images; the 20 real phone photos have
+enough positives for Lung Opacity only). Caught and false hints use the app's cut-off of 0.5:
 
 | Model | Test set | Mean AUC | Caught | False hints |
 |---|---|---|---|---|
 | Base | clean | 0.792 | 84% | 45% |
 | Base | simulated photo | 0.658 | 73% | 48% |
 | Base | 20 real photos | 0.906 | 83% | 53% |
-| **v1** | clean | **0.832** | 68% | **29%** |
-| **v1** | simulated photo | **0.782** | 64% | **34%** |
-| **v1** | 20 real photos | **0.953** | 75% | **25%** |
+| **v1** | clean | **0.831** | 62% | **10%** |
+| **v1** | simulated photo | **0.788** | 57% | **12%** |
+| **v1** | 20 real photos | **0.922** | 58% | **8%** |
 
-- On simulated photos, AUC goes up for all 14 findings, including those held to the base model
-  (Consolidation 0.72 → 0.81, Edema 0.86 → 0.95).
-- The new operating points cut false hints by about a third but catch fewer findings. To move that
-  balance, change how `operating_points()` in `ft/model.py` picks the threshold (for example, the
-  lowest threshold that keeps 90% sensitivity).
+- On simulated photos, AUC goes up for every finding that has enough test positives, including
+  those held to the base model (Consolidation 0.72 → 0.81, Edema 0.86 → 0.95).
+- v1 gives a quarter as many false hints, but catches fewer findings. Raising the base model's
+  cut-off to get the same false hints catches far fewer (at 0.6: 40% caught, 14% false hints on
+  photos), so v1 is better at any balance. To move v1's balance, change `operating_points()` in
+  `ft/model.py` (for example, the lowest point that keeps 90% sensitivity) and run `ft.calibrate`.
+- On the 20 real photos the base model gives 196 hints in total, v1 gives 36. The base model hints
+  Fracture and Pneumothorax on almost every photo; v1 gives no hints on most normal scans.
 - Nodule and Lung Lesion stay near chance (0.53 to 0.60), with the base model or v1: small
   nodules don't survive a 224×224 photo, and captions mention many old granulomas.
+- **In the app** (its eval on the 20 real photos: Sonnet writes, Opus judges), v1 gives the same
+  result as the base model: main finding caught in 29% of cases, 0.2 false alarms per case.
+  Most misses are findings the explanation leaves out or puts on the wrong side, which hints
+  this weak don't change. The gain so far is cleaner input, not better explanations.
+- An evaluation right after training gave v1 0.782 (photo) and 0.953 (real photos); every run
+  since gives 0.788 and 0.922, while the base model's numbers never moved. The cause is unknown.
 
 ## Using a checkpoint in the app
 
@@ -94,9 +107,9 @@ model = xrv.models.DenseNet(weights="densenet121-res224-all")
 model.load_state_dict(torch.load(path, map_location="cpu", weights_only=False)["state_dict"])
 ```
 
-Nothing else changes: same input, same 18 outputs, same 0.5 cut-off. The app does not have a
-setting for the weights file yet; adding one (e.g. `XRAY_MODEL_WEIGHTS`) and copying `best.pt`
-into the server image are the next steps once a checkpoint beats the base model.
+Nothing else changes: same input, same 18 outputs, same 0.5 cut-off. The app does this when
+`XRAY_MODEL=torchxrayvision` and `XRAY_MODEL_WEIGHTS` is the path to a `best.pt`. On a server,
+the file still has to be copied into the image or a volume.
 
 ## Checks
 
