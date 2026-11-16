@@ -62,6 +62,28 @@ Runs on Apple silicon (MPS), CUDA or CPU. The first run downloads the base weigh
 It prints mean AUC, and the two numbers that matter in the app: **caught** (present findings
 scoring ≥ 0.5) and **false hints** (absent findings scoring ≥ 0.5).
 
+## Results
+
+`runs/v1`, the default settings, on 2026-11-16 (517 test images; the 20 real phone photos have
+enough positives for Lung Opacity only):
+
+| Model | Test set | Mean AUC | Caught | False hints |
+|---|---|---|---|---|
+| Base | clean | 0.792 | 84% | 45% |
+| Base | simulated photo | 0.658 | 73% | 48% |
+| Base | 20 real photos | 0.906 | 83% | 53% |
+| **v1** | clean | **0.832** | 68% | **29%** |
+| **v1** | simulated photo | **0.782** | 64% | **34%** |
+| **v1** | 20 real photos | **0.953** | 75% | **25%** |
+
+- AUC goes up for 13 of 14 findings on photos, including those held to the base model
+  (Consolidation 0.72 → 0.81, Edema 0.86 → 0.95).
+- The new operating points cut false hints by about a third but catch fewer findings. To move that
+  balance, change how `operating_points()` in `ft/model.py` picks the threshold (for example, the
+  lowest threshold that keeps 90% sensitivity).
+- Nodule and Lung Lesion stay near chance (0.53 to 0.60), with the base model or v1: small
+  nodules don't survive a 224×224 photo, and captions mention many old granulomas.
+
 ## Using a checkpoint in the app
 
 `best.pt` holds the full weights, including the new operating points. In the app's
